@@ -1,0 +1,8 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system

@@ -1,0 +1,50 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redpanda-tuner
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: redpanda-tuner
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+rules:
+  # Need to get and patch nodes for annotations
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch"]
+
+  # Need to create and update ConfigMaps for iotune results
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+
+  # Need to create Events for status reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: redpanda-tuner
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: redpanda-tuner
+subjects:
+  - kind: ServiceAccount
+    name: redpanda-tuner
+    namespace: redpanda-system

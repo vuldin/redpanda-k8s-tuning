@@ -1,0 +1,520 @@
+# Advanced Custom Configuration Examples
+# This file demonstrates various advanced configuration scenarios
+
+---
+# Example 1: Production Configuration with Long iotune
+# Use this for production deployments where accuracy is critical
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config-production
+  namespace: redpanda-system
+data:
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  # Long iotune for accurate benchmarking (60 minutes)
+  iotune-duration: "60m"
+  iotune-directory: "/mnt/vectorized"
+
+  # Extended timeout to accommodate long iotune
+  tuning-timeout: "90m"
+
+  force-retune: "false"
+  log-level: "info"
+
+  # CPU pinning and specific network interface
+  rpk-tune-extra-args: "--cpu-set 0-15 --nic eth0"
+
+---
+# Example 2: Development/Testing Configuration
+# Fast tuning for development environments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config-dev
+  namespace: redpanda-system
+data:
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  # Minimal iotune duration for quick testing (5 minutes)
+  iotune-duration: "5m"
+  iotune-directory: "/mnt/vectorized"
+
+  # Short timeout
+  tuning-timeout: "15m"
+
+  # Enable force-retune for testing
+  force-retune: "true"
+
+  # Debug logging
+  log-level: "debug"
+
+  rpk-tune-extra-args: ""
+
+---
+# Example 3: iotune Only (Skip System Tuning)
+# Use when you only want I/O benchmarking
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config-iotune-only
+  namespace: redpanda-system
+data:
+  # Disable system tuning
+  enable-tuning: "false"
+
+  # Only run iotune
+  enable-iotune: "true"
+  iotune-duration: "30m"
+  iotune-directory: "/mnt/vectorized"
+
+  tuning-timeout: "45m"
+  force-retune: "false"
+  log-level: "info"
+  rpk-tune-extra-args: ""
+
+---
+# Example 4: Multi-Disk Configuration
+# When Redpanda uses multiple disks
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config-multi-disk
+  namespace: redpanda-system
+data:
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  iotune-duration: "30m"
+
+  # Primary data directory
+  iotune-directory: "/mnt/disk1"
+
+  tuning-timeout: "45m"
+  force-retune: "false"
+  log-level: "info"
+
+  # Specify multiple disks for tuning
+  rpk-tune-extra-args: "--disks /dev/nvme0n1,/dev/nvme1n1"
+
+---
+# Example 5: NUMA-Aware Configuration
+# For large machines with multiple NUMA nodes
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config-numa
+  namespace: redpanda-system
+data:
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  iotune-duration: "30m"
+  iotune-directory: "/mnt/vectorized"
+
+  tuning-timeout: "45m"
+  force-retune: "false"
+  log-level: "info"
+
+  # Pin to specific NUMA node and CPUs
+  rpk-tune-extra-args: "--cpu-set 0-31 --nic eth0 --num-io-queues 16"
+
+---
+# Example 6: DaemonSet with Multiple Node Selectors
+# Target nodes by multiple criteria
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner-multi-selector
+  namespace: redpanda-system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+    spec:
+      serviceAccountName: redpanda-tuner
+
+      # Multiple node selectors
+      nodeSelector:
+        redpanda.com/node: "true"
+        storage-type: "nvme"
+        node-tier: "production"
+
+      # Custom tolerations
+      tolerations:
+        - key: dedicated
+          value: redpanda
+          effect: NoSchedule
+        - key: storage-intensive
+          operator: Exists
+          effect: NoSchedule
+
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      containers:
+        - name: tuner
+          image: your-registry/redpanda-tuner:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            # Use production config
+            - name: ENABLE_TUNING
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: enable-tuning
+
+            - name: ENABLE_IOTUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: enable-iotune
+
+            - name: IOTUNE_DURATION
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: iotune-duration
+
+            - name: IOTUNE_DIRECTORY
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: iotune-directory
+
+            - name: TUNING_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: tuning-timeout
+
+            - name: FORCE_RETUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: force-retune
+
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: log-level
+
+            - name: RPK_TUNE_EXTRA_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config-production
+                  key: rpk-tune-extra-args
+
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-proc
+              mountPath: /proc
+            - name: redpanda-data
+              mountPath: /mnt/vectorized
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/vectorized
+
+---
+# Example 7: Staged Rollout with Node Affinity
+# Tune nodes gradually using node affinity
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner-staged
+  namespace: redpanda-system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+    spec:
+      serviceAccountName: redpanda-tuner
+
+      # Use affinity for more complex node selection
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              # Stage 1: Tune nodes in zone a
+              - matchExpressions:
+                  - key: redpanda.com/node
+                    operator: In
+                    values: ["true"]
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["us-east-1a"]
+
+              # Stage 2: Add more zones later by updating this list
+              # - matchExpressions:
+              #     - key: redpanda.com/node
+              #       operator: In
+              #       values: ["true"]
+              #     - key: topology.kubernetes.io/zone
+              #       operator: In
+              #       values: ["us-east-1b"]
+
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      containers:
+        - name: tuner
+          image: your-registry/redpanda-tuner:latest
+          securityContext:
+            privileged: true
+          envFrom:
+            - configMapRef:
+                name: redpanda-tuner-config
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-proc
+              mountPath: /proc
+            - name: redpanda-data
+              mountPath: /mnt/vectorized
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/vectorized
+
+---
+# Example 8: Using envFrom for Simpler Configuration
+# Load all ConfigMap keys as environment variables
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner-envfrom
+  namespace: redpanda-system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+    spec:
+      serviceAccountName: redpanda-tuner
+      nodeSelector:
+        redpanda.com/node: "true"
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      containers:
+        - name: tuner
+          image: your-registry/redpanda-tuner:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+
+          # Load all ConfigMap values as environment variables
+          envFrom:
+            - configMapRef:
+                name: redpanda-tuner-config
+
+          # Additional environment variables
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-proc
+              mountPath: /proc
+            - name: redpanda-data
+              mountPath: /mnt/vectorized
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/vectorized
+
+---
+# Example 9: Monitoring and Observability
+# Add Prometheus annotations for metrics collection
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner-monitored
+  namespace: redpanda-system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+      annotations:
+        # Prometheus scraping annotations (for future metrics endpoint)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+
+        # Datadog annotations (if using Datadog)
+        ad.datadoghq.com/tuner.logs: '[{"source":"redpanda-tuner","service":"redpanda-tuner"}]'
+
+    spec:
+      serviceAccountName: redpanda-tuner
+      nodeSelector:
+        redpanda.com/node: "true"
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      containers:
+        - name: tuner
+          image: your-registry/redpanda-tuner:latest
+          securityContext:
+            privileged: true
+
+          envFrom:
+            - configMapRef:
+                name: redpanda-tuner-config
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-dev
+              mountPath: /dev
+            - name: host-sys
+              mountPath: /sys
+            - name: host-proc
+              mountPath: /proc
+            - name: redpanda-data
+              mountPath: /mnt/vectorized
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: host-sys
+          hostPath:
+            path: /sys
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/vectorized
+
+---
+# Usage Examples:
+
+# 1. Deploy with production config:
+#    kubectl apply -f custom-config.yaml
+#    kubectl patch daemonset redpanda-tuner -n redpanda-system \
+#      --type=json -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/envFrom/0/configMapRef/name", "value": "redpanda-tuner-config-production"}]'
+
+# 2. Switch to dev config:
+#    kubectl patch daemonset redpanda-tuner -n redpanda-system \
+#      --type=json -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/envFrom/0/configMapRef/name", "value": "redpanda-tuner-config-dev"}]'
+
+# 3. Force re-tune all nodes:
+#    kubectl patch configmap redpanda-tuner-config -n redpanda-system \
+#      -p '{"data":{"force-retune":"true"}}'
+#    kubectl rollout restart daemonset/redpanda-tuner -n redpanda-system
+
+# 4. Check iotune results:
+#    kubectl get configmap redpanda-iotune-results -n redpanda-system -o yaml
+
+# 5. View tuning status across all nodes:
+#    kubectl get nodes -L redpanda.com/tuned,redpanda.com/tuned-timestamp,redpanda.com/reboot-required

@@ -1,0 +1,356 @@
+# Amazon Elastic Kubernetes Service (EKS) Specific Configuration
+# This example shows how to deploy the Redpanda tuner on EKS with node groups
+
+---
+# ConfigMap with EKS-optimized settings
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+data:
+  # Enable both tuning and iotune
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  # Production iotune duration
+  iotune-duration: "30m"
+
+  # EKS with EBS volumes typically mount at /mnt/data or similar
+  # For instance store (ephemeral), use /mnt/instance-store
+  # Adjust based on your storage configuration
+  iotune-directory: "/mnt/data"
+
+  # Increase timeout for longer iotune
+  tuning-timeout: "45m"
+
+  # Standard settings
+  force-retune: "false"
+  log-level: "info"
+
+  # EKS-specific tuning arguments
+  # EKS network interface is typically eth0 or ens5
+  # Use --nic flag if you need to specify a particular interface
+  rpk-tune-extra-args: ""
+
+---
+# DaemonSet with EKS-specific configurations
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+      annotations:
+        # EKS-specific: Prevent eviction during node updates
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      serviceAccountName: redpanda-tuner
+
+      # Node selector for EKS node group
+      # Option 1: Use custom label on Redpanda node group
+      nodeSelector:
+        redpanda.com/node: "true"
+
+      # Option 2: Target specific EKS node group by name
+      # nodeSelector:
+      #   eks.amazonaws.com/nodegroup: redpanda-ng
+
+      # Option 3: Target specific instance types
+      # nodeSelector:
+      #   node.kubernetes.io/instance-type: i3en.2xlarge
+
+      # Option 4: Target nodes with instance store
+      # nodeSelector:
+      #   eks.amazonaws.com/capacityType: ON_DEMAND
+      #   node.kubernetes.io/instance-type: i3en.2xlarge
+
+      # Tolerations for EKS-specific taints
+      tolerations:
+        # Standard K8s taints
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+
+        # EKS Spot instances (if using spot node groups)
+        - key: eks.amazonaws.com/capacityType
+          value: SPOT
+          effect: NoSchedule
+
+        # Custom taints for dedicated Redpanda nodes
+        - key: dedicated
+          value: redpanda
+          effect: NoSchedule
+
+      # Use host namespaces
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      # Priority class for EKS (optional)
+      # priorityClassName: system-node-critical
+
+      containers:
+        - name: tuner
+          # Replace with your image in ECR
+          image: YOUR_AWS_ACCOUNT_ID.dkr.ecr.YOUR_REGION.amazonaws.com/redpanda-tuner:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - SYS_NICE
+                - NET_ADMIN
+                - IPC_LOCK
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            # EKS-specific: Add AWS region and availability zone
+            - name: AWS_REGION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['topology.kubernetes.io/region']
+
+            - name: AWS_AZ
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['topology.kubernetes.io/zone']
+
+            # EKS instance type (useful for logging)
+            - name: INSTANCE_TYPE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['node.kubernetes.io/instance-type']
+
+            # Load config from ConfigMap
+            - name: ENABLE_TUNING
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-tuning
+
+            - name: ENABLE_IOTUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-iotune
+
+            - name: IOTUNE_DURATION
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-duration
+
+            - name: IOTUNE_DIRECTORY
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-directory
+
+            - name: TUNING_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: tuning-timeout
+
+            - name: FORCE_RETUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: force-retune
+
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: log-level
+
+            - name: RPK_TUNE_EXTRA_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: rpk-tune-extra-args
+
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              mountPropagation: HostToContainer
+
+            - name: host-dev
+              mountPath: /dev
+              mountPropagation: HostToContainer
+
+            - name: host-sys
+              mountPath: /sys
+              mountPropagation: HostToContainer
+
+            - name: host-proc
+              mountPath: /proc
+              mountPropagation: HostToContainer
+
+            # EKS data volume mount
+            # Adjust path based on your storage:
+            # - EBS: /mnt/data
+            # - Instance store: /mnt/instance-store
+            - name: redpanda-data
+              mountPath: /mnt/data
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+
+        - name: host-dev
+          hostPath:
+            path: /dev
+
+        - name: host-sys
+          hostPath:
+            path: /sys
+
+        - name: host-proc
+          hostPath:
+            path: /proc
+
+        # EKS data volume
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/data
+            type: DirectoryOrCreate
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+---
+# Example: Create EKS node group with eksctl
+#
+# eksctl create nodegroup \
+#   --cluster=YOUR_CLUSTER_NAME \
+#   --name=redpanda-ng \
+#   --node-type=i3en.2xlarge \
+#   --nodes=3 \
+#   --nodes-min=3 \
+#   --nodes-max=6 \
+#   --node-labels="redpanda.com/node=true" \
+#   --node-taints="dedicated=redpanda:NoSchedule"
+
+# Example: Create EKS node group with AWS EBS gp3 volumes
+#
+# eksctl create nodegroup \
+#   --cluster=YOUR_CLUSTER_NAME \
+#   --name=redpanda-ng \
+#   --node-type=m6i.2xlarge \
+#   --nodes=3 \
+#   --node-volume-size=500 \
+#   --node-volume-type=gp3 \
+#   --node-labels="redpanda.com/node=true"
+
+# Example: Label existing EKS nodes
+#
+# kubectl label nodes \
+#   -l eks.amazonaws.com/nodegroup=redpanda-ng \
+#   redpanda.com/node=true
+
+# Example: Create EKS node group with instance store (i3en family)
+#
+# eksctl create nodegroup \
+#   --cluster=YOUR_CLUSTER_NAME \
+#   --name=redpanda-ng-nvme \
+#   --node-type=i3en.2xlarge \
+#   --nodes=3 \
+#   --node-labels="redpanda.com/node=true,storage-type=nvme" \
+#   --node-ami-family=AmazonLinux2 \
+#   --kubelet-extra-args="--node-labels=nvme-instance=true"
+
+# Note: For instance store, you'll need to format and mount NVMe devices
+# This can be done with a privileged init container or user data script
+
+---
+# Optional: IAM Role for Service Account (IRSA) configuration
+# If you need to access AWS services from the tuner pod
+#
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   name: redpanda-tuner
+#   namespace: redpanda-system
+#   annotations:
+#     eks.amazonaws.com/role-arn: arn:aws:iam::YOUR_ACCOUNT_ID:role/RedpandaTunerRole
+
+---
+# Optional: PodSecurityPolicy for EKS (if PSP is enabled)
+# Note: PSP is deprecated as of K8s 1.25
+#
+# apiVersion: policy/v1beta1
+# kind: PodSecurityPolicy
+# metadata:
+#   name: redpanda-tuner-psp
+# spec:
+#   privileged: true
+#   allowPrivilegeEscalation: true
+#   hostNetwork: true
+#   hostPID: true
+#   hostIPC: true
+#   volumes:
+#     - 'hostPath'
+#   runAsUser:
+#     rule: 'RunAsAny'
+#   seLinux:
+#     rule: 'RunAsAny'
+#   supplementalGroups:
+#     rule: 'RunAsAny'
+#   fsGroup:
+#     rule: 'RunAsAny'
+
+---
+# EKS-specific notes:
+#
+# 1. Instance Types with NVMe:
+#    - i3, i3en: Instance store NVMe SSDs (best performance)
+#    - m6id, r6id, c6id: EBS + instance store
+#
+# 2. EBS Volume Types:
+#    - gp3: General purpose SSD (recommended for most workloads)
+#    - io2: Provisioned IOPS SSD (high performance)
+#    - st1: Throughput optimized HDD (not recommended for Redpanda)
+#
+# 3. Network Optimization:
+#    - Use Enhanced Networking (enabled by default on modern instances)
+#    - Consider Elastic Fabric Adapter (EFA) for m5n/c5n instances
+#
+# 4. Security Groups:
+#    - Ensure tuner pods can access Kubernetes API server
+#    - No additional ingress rules needed (host network)

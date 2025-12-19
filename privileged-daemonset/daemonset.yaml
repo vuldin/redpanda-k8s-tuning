@@ -1,0 +1,196 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+    app.kubernetes.io/version: "latest"
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+        app.kubernetes.io/name: redpanda-tuner
+        app.kubernetes.io/component: system
+    spec:
+      serviceAccountName: redpanda-tuner
+
+      # Only run on nodes labeled for Redpanda
+      nodeSelector:
+        redpanda.com/node: "true"
+
+      # Tolerate common taints (adjust as needed for your cluster)
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+
+      # Use host namespaces for privileged operations
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      # Run on all nodes (even if other pods are scheduled)
+      # This ensures tuning happens before Redpanda pods start
+      # Use updateStrategy to control rollout
+      initContainers: []
+
+      containers:
+        - name: tuner
+          # Replace with your built image
+          # Build with: docker build -t your-registry/redpanda-tuner:latest .
+          image: your-registry/redpanda-tuner:latest
+          imagePullPolicy: Always
+
+          # Security context for privileged operations
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - SYS_NICE
+                - NET_ADMIN
+                - IPC_LOCK
+            seLinuxOptions:
+              type: spc_t
+
+          # Environment variables from ConfigMap
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            - name: ENABLE_TUNING
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-tuning
+                  optional: true
+
+            - name: ENABLE_IOTUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-iotune
+                  optional: true
+
+            - name: IOTUNE_DURATION
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-duration
+                  optional: true
+
+            - name: IOTUNE_DIRECTORY
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-directory
+                  optional: true
+
+            - name: TUNING_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: tuning-timeout
+                  optional: true
+
+            - name: FORCE_RETUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: force-retune
+                  optional: true
+
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: log-level
+                  optional: true
+
+            - name: RPK_TUNE_EXTRA_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: rpk-tune-extra-args
+                  optional: true
+
+          # Volume mounts
+          volumeMounts:
+            # Mount host root filesystem
+            - name: host-root
+              mountPath: /host
+              mountPropagation: HostToContainer
+
+            # Mount host /dev for device access
+            - name: host-dev
+              mountPath: /dev
+              mountPropagation: HostToContainer
+
+            # Mount host /sys for sysfs access
+            - name: host-sys
+              mountPath: /sys
+              mountPropagation: HostToContainer
+
+            # Mount host /proc for process information
+            - name: host-proc
+              mountPath: /proc
+              mountPropagation: HostToContainer
+
+            # Mount iotune directory (adjust path as needed)
+            - name: redpanda-data
+              mountPath: /mnt/vectorized
+
+          # Resource limits (adjust based on your needs)
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+      # Volumes
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+            type: Directory
+
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
+
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/vectorized
+            type: DirectoryOrCreate
+
+  # Update strategy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1

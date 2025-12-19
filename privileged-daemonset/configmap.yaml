@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+data:
+  # Tuning configuration
+  # Set to "false" to skip rpk tune (iotune only)
+  enable-tuning: "true"
+
+  # Set to "false" to skip iotune benchmarking
+  enable-iotune: "true"
+
+  # iotune duration (default: 10m for quick benchmark)
+  # For production, consider 30m-60m for more accurate results
+  iotune-duration: "10m"
+
+  # Directory for iotune to test (must be on the disk used by Redpanda)
+  iotune-directory: "/mnt/vectorized"
+
+  # Timeout for the entire tuning process (default: 30m)
+  tuning-timeout: "30m"
+
+  # Force re-tuning even if node is already annotated as tuned
+  # Useful for testing or after hardware changes
+  force-retune: "false"
+
+  # Log level: debug, info, warn, error
+  log-level: "info"
+
+  # Additional rpk tune flags (space-separated)
+  # Example: "--cpu-set 0-3 --nic eth0"
+  rpk-tune-extra-args: ""

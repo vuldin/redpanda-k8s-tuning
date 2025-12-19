@@ -1,0 +1,281 @@
+# Google Kubernetes Engine (GKE) Specific Configuration
+# This example shows how to deploy the Redpanda tuner on GKE with node pools
+
+---
+# ConfigMap with GKE-optimized settings
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-tuner-config
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+data:
+  # Enable both tuning and iotune
+  enable-tuning: "true"
+  enable-iotune: "true"
+
+  # Longer iotune duration for production
+  iotune-duration: "30m"
+
+  # GKE typically mounts data volumes at /mnt/disks/ssd0 or similar
+  # Adjust based on your PersistentVolume configuration
+  iotune-directory: "/mnt/disks/ssd0"
+
+  # Increase timeout for longer iotune
+  tuning-timeout: "45m"
+
+  # Standard settings
+  force-retune: "false"
+  log-level: "info"
+
+  # GKE-specific tuning arguments
+  # Adjust based on your machine type and network interface
+  rpk-tune-extra-args: ""
+
+---
+# DaemonSet with GKE-specific configurations
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: redpanda-tuner
+  namespace: redpanda-system
+  labels:
+    app.kubernetes.io/name: redpanda-tuner
+    app.kubernetes.io/component: system
+spec:
+  selector:
+    matchLabels:
+      app: redpanda-tuner
+  template:
+    metadata:
+      labels:
+        app: redpanda-tuner
+      annotations:
+        # GKE-specific: Prevent eviction during node upgrades
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      serviceAccountName: redpanda-tuner
+
+      # Node selector for GKE node pool
+      # Option 1: Use custom label on Redpanda node pool
+      nodeSelector:
+        redpanda.com/node: "true"
+
+      # Option 2: Target specific GKE node pool by name
+      # nodeSelector:
+      #   cloud.google.com/gke-nodepool: redpanda-pool
+
+      # Option 3: Target nodes with local SSDs
+      # nodeSelector:
+      #   cloud.google.com/gke-local-ssd: "true"
+
+      # Tolerations for GKE-specific taints
+      tolerations:
+        # Standard K8s taints
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+
+        # GKE preemptible nodes (if using spot instances)
+        - key: cloud.google.com/gke-preemptible
+          operator: Exists
+          effect: NoSchedule
+
+      # Use host namespaces
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+
+      # Priority class for GKE (optional)
+      # Ensures tuner pods are scheduled even under resource pressure
+      # priorityClassName: system-node-critical
+
+      containers:
+        - name: tuner
+          # Replace with your image
+          image: gcr.io/YOUR_PROJECT_ID/redpanda-tuner:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - SYS_RESOURCE
+                - SYS_NICE
+                - NET_ADMIN
+                - IPC_LOCK
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+            # GKE-specific: Add node zone for logging
+            - name: NODE_ZONE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['topology.kubernetes.io/zone']
+
+            # Load config from ConfigMap
+            - name: ENABLE_TUNING
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-tuning
+
+            - name: ENABLE_IOTUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: enable-iotune
+
+            - name: IOTUNE_DURATION
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-duration
+
+            - name: IOTUNE_DIRECTORY
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: iotune-directory
+
+            - name: TUNING_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: tuning-timeout
+
+            - name: FORCE_RETUNE
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: force-retune
+
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: log-level
+
+            - name: RPK_TUNE_EXTRA_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  name: redpanda-tuner-config
+                  key: rpk-tune-extra-args
+
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              mountPropagation: HostToContainer
+
+            - name: host-dev
+              mountPath: /dev
+              mountPropagation: HostToContainer
+
+            - name: host-sys
+              mountPath: /sys
+              mountPropagation: HostToContainer
+
+            - name: host-proc
+              mountPath: /proc
+              mountPropagation: HostToContainer
+
+            # GKE local SSD mount (adjust path based on your configuration)
+            - name: redpanda-data
+              mountPath: /mnt/disks/ssd0
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+
+        - name: host-dev
+          hostPath:
+            path: /dev
+
+        - name: host-sys
+          hostPath:
+            path: /sys
+
+        - name: host-proc
+          hostPath:
+            path: /proc
+
+        # GKE local SSD volume
+        - name: redpanda-data
+          hostPath:
+            path: /mnt/disks/ssd0
+            type: DirectoryOrCreate
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+---
+# Example: Label GKE nodes in a specific node pool
+# Run this after creating your GKE node pool:
+#
+# kubectl label nodes \
+#   -l cloud.google.com/gke-nodepool=redpanda-pool \
+#   redpanda.com/node=true
+
+# Example: Create GKE node pool with local SSDs
+# gcloud container node-pools create redpanda-pool \
+#   --cluster=YOUR_CLUSTER_NAME \
+#   --machine-type=n2-standard-16 \
+#   --num-nodes=3 \
+#   --local-ssd-count=1 \
+#   --node-labels=redpanda.com/node=true \
+#   --node-taints=dedicated=redpanda:NoSchedule
+
+# Example: Create GKE node pool with persistent disks
+# gcloud container node-pools create redpanda-pool \
+#   --cluster=YOUR_CLUSTER_NAME \
+#   --machine-type=n2-standard-16 \
+#   --num-nodes=3 \
+#   --disk-type=pd-ssd \
+#   --disk-size=500GB \
+#   --node-labels=redpanda.com/node=true
+
+---
+# Optional: PodSecurityPolicy exemption for GKE (if PSP is enabled)
+# Note: PSP is deprecated as of K8s 1.25, use PodSecurityStandards instead
+#
+# apiVersion: policy/v1beta1
+# kind: PodSecurityPolicy
+# metadata:
+#   name: redpanda-tuner-psp
+# spec:
+#   privileged: true
+#   allowPrivilegeEscalation: true
+#   hostNetwork: true
+#   hostPID: true
+#   hostIPC: true
+#   volumes:
+#     - 'hostPath'
+#   runAsUser:
+#     rule: 'RunAsAny'
+#   seLinux:
+#     rule: 'RunAsAny'
+#   supplementalGroups:
+#     rule: 'RunAsAny'
+#   fsGroup:
+#     rule: 'RunAsAny'
