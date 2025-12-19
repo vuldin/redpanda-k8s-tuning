@@ -22,9 +22,9 @@ Redpanda requires specific kernel-level tuning (`rpk redpanda tune`) for product
 
 ## Quick Comparison
 
-### Standalone Script (NEW!)
+### Standalone Script
 
-**✅ Pros:**
+**Pros:**
 - No rpk or Redpanda packages required (~150KB vs 200-500MB)
 - Pure bash with standard Linux utilities
 - Works with or without hwloc/ethtool (graceful degradation)
@@ -32,27 +32,27 @@ Redpanda requires specific kernel-level tuning (`rpk redpanda tune`) for product
 - Can be used in DaemonSets, cloud-init, or standalone
 - Easy to audit and customize
 
-**❌ Cons:**
+**Cons:**
 - No live iotune benchmarking (uses precomputed values)
 - Bash maintenance burden
 - Updates not automatic from rpk
 
 **When to use:** You want the lightest-weight solution without installing Redpanda packages, or your environment blocks rpk installation.
 
-[→ Get Started with Standalone Script](./standalone-script/)
+[Get Started with Standalone Script](./standalone-script/)
 
 ---
 
 ### Privileged DaemonSet
 
-**✅ Pros:**
+**Pros:**
 - Quick to deploy (kubectl apply)
 - No infrastructure changes required
 - Portable across cloud providers
 - Easy to update configuration
 - Works with managed node pools
 
-**❌ Cons:**
+**Cons:**
 - Requires privileged containers
 - Runtime overhead (minimal)
 - May not persist after reboot
@@ -60,20 +60,20 @@ Redpanda requires specific kernel-level tuning (`rpk redpanda tune`) for product
 
 **When to use:** You're an application team deploying to Kubernetes and need a solution that "just works" without touching infrastructure.
 
-[→ Get Started with DaemonSet](./privileged-daemonset/)
+[Get Started with DaemonSet](./privileged-daemonset/)
 
 ---
 
 ### Node Image Pre-tuning
 
-**✅ Pros:**
+**Pros:**
 - No runtime overhead
 - Tuning persists across reboots
 - More secure (no privileged runtime)
 - Infrastructure-as-code friendly
 - Works in restricted environments
 
-**❌ Cons:**
+**Cons:**
 - Requires image building pipeline
 - Cloud provider-specific
 - Slower to iterate and update
@@ -81,7 +81,7 @@ Redpanda requires specific kernel-level tuning (`rpk redpanda tune`) for product
 
 **When to use:** You control infrastructure and already have golden image pipelines (Packer, etc.) or can use cloud provider startup scripts.
 
-[→ Get Started with Node Images](./node-image/)
+[Get Started with Node Images](./node-image/)
 
 ---
 
@@ -329,6 +329,7 @@ helm install redpanda redpanda/redpanda \
 ```
 k8s-tuning/
 ├── README.md                    # This file - choose your approach
+├── k8s-tuning-blog.md           # Blog post explaining all three approaches
 │
 ├── standalone-script/           # Approach 1: Standalone bash script (no rpk)
 │   ├── README.md               # Full standalone script guide

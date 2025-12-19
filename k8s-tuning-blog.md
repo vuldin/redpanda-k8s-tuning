@@ -25,7 +25,7 @@ Node tuning addresses multiple system layers:
 
 ### Required or Recommended?
 
-Node tuning is **required for production deployments** where you expect predictable, low-latency performance. Without tuning, you may experience:
+Node tuning is **required for production deployments** where you expect predictable, low-latency performance. Redpanda will start without tuning, but you may experience:
 - Higher and more variable latencies (10-100x worse in some cases)
 - Reduced maximum throughput (leaving hardware capacity on the table)
 - Performance degradation under load
@@ -60,7 +60,7 @@ The traditional approach to node tuning—SSH into each node, run configuration 
 
 **Manual SSH tuning doesn't scale**: In dynamic environments where nodes come and go, manual tuning creates operational burden. Auto-scaling node groups start untunned. Node replacements require re-tuning. Cluster upgrades mean re-tuning every node.
 
-**Package installation becomes a burden**: The standard tuning tool, `rpk`, comes with the full Redpanda package—200-500MB of binaries you don't actually need on Kubernetes nodes. You're installing an entire database just to tune kernel parameters. This increases node image size, provisioning time, and attack surface.
+**Package installation becomes a burden**: The standard tuning tool, `rpk`, comes with the full Redpanda package—200-500MB of binaries you don't actually need on Kubernetes nodes. You're installing an entire database just to tune kernel parameters. This increases node image size and provisioning time.
 
 **Team boundaries create friction**: Application teams deploying Redpanda often don't have access to modify node configurations or install packages. Infrastructure teams managing nodes may not be familiar with application-specific requirements. This organizational split means tuning either gets skipped or becomes a slow, ticket-driven process.
 
@@ -70,9 +70,9 @@ The traditional approach to node tuning—SSH into each node, run configuration 
 
 What's needed are solutions designed for Kubernetes operational patterns: automated, repeatable, and compatible with diverse infrastructure constraints.
 
-## Three Production-Ready Solutions
+## Three Solutions to this problem
 
-We've developed three complementary approaches, each optimized for different organizational needs and constraints. All three apply the same kernel-level tuning, but differ in deployment model, dependencies, and operational characteristics.
+Below are details on three complementary approaches, each best suited for different organizational needs and constraints. All three apply the same kernel-level tuning, but they differ in deployment model, dependencies, and operational characteristics.
 
 ### Approach 1: Standalone Script — Lightweight and Universal
 
